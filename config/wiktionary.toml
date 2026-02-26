@@ -1,0 +1,53 @@
+[input]
+# Path to the source ZIM archive.
+zim_path = "tmp/wiktionary_en_all_nopic_2026-02.zim"
+# Output SQLite database path.
+sqlite_path = "out/wiktionary.sqlite"
+
+[selection]
+# Entry index window from the ZIM url pointer list.
+start_index = 0
+# Set to an integer for sampling, or leave unset for full extraction.
+max_entries = 5000
+
+# Which namespaces to include. "A" is article content.
+include_namespaces = ["A"]
+# MIME filters for entry payloads. Keep to HTML for Wiktionary definitions.
+include_mime_prefixes = ["text/html"]
+
+# Skip redirected entries by default.
+skip_redirects = true
+require_title = true
+
+# Quick heuristics to remove noisy administrative pages.
+exclude_url_prefixes = ["Special:", "Wiktionary:"]
+exclude_title_prefixes = ["Appendix:", "Reconstruction:"]
+
+[extraction]
+# Keep HTML blobs in SQLite. Turn off to reduce DB size.
+store_raw_html = false
+# Store plain text generated from HTML.
+store_plain_text = true
+
+# Parse language sections from Wiktionary-style <h2> blocks.
+parse_language_sections = true
+# Empty means all languages found in pages.
+language_allowlist = []
+
+# Controls extraction precision/volume.
+min_definition_chars = 20
+max_definitions_per_language = 32
+
+[sqlite]
+batch_size = 250
+overwrite = false
+enable_fts = true
+journal_mode = "WAL"
+synchronous = "NORMAL"
+cache_size_kib = 65536
+busy_timeout_ms = 5000
+
+[logging]
+level = "info"
+json = false
+progress_interval = 1000
