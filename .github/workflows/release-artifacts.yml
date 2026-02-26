@@ -1,0 +1,26 @@
+name: release-artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "release-*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release bundle
+        run: |
+          cargo run --release -- --config config/wiktionary.toml build-artifacts --build-release
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zimrs-release-artifacts
+          path: dist/

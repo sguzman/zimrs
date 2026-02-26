@@ -1,42 +1,39 @@
 [input]
-# Path to the source ZIM archive.
 zim_path = "tmp/wiktionary_en_all_nopic_2026-02.zim"
-# Output SQLite database path.
 sqlite_path = "out/wiktionary.sqlite"
 
 [selection]
-# Entry index window from the ZIM url pointer list.
 start_index = 0
-# Set to an integer for sampling, or leave unset for full extraction.
 max_entries = 5000
-
-# Which namespaces to include. "A" is article content.
 include_namespaces = ["A"]
-# MIME filters for entry payloads. Keep to HTML for Wiktionary definitions.
 include_mime_prefixes = ["text/html"]
-
-# Skip redirected entries by default.
 skip_redirects = true
 require_title = true
-
-# Quick heuristics to remove noisy administrative pages.
 exclude_url_prefixes = ["Special:", "Wiktionary:"]
 exclude_title_prefixes = ["Appendix:", "Reconstruction:"]
 
 [extraction]
-# Keep HTML blobs in SQLite. Turn off to reduce DB size.
 store_raw_html = false
-# Store plain text generated from HTML.
 store_plain_text = true
-
-# Parse language sections from Wiktionary-style <h2> blocks.
 parse_language_sections = true
-# Empty means all languages found in pages.
+parse_relations = true
 language_allowlist = []
-
-# Controls extraction precision/volume.
 min_definition_chars = 20
 max_definitions_per_language = 32
+relation_types = ["synonyms", "antonyms", "translations"]
+max_relations_per_type = 48
+default_normalizer = "identity"
+nested_list_depth_limit = 4
+confidence_threshold = 0.15
+include_title_as_alias = true
+alias_min_length = 2
+
+[extraction.language_normalizers]
+English = "english_basic"
+French = "romance_basic"
+Spanish = "romance_basic"
+Japanese = "cjk_basic"
+Chinese = "cjk_basic"
 
 [sqlite]
 batch_size = 250
@@ -46,6 +43,31 @@ journal_mode = "WAL"
 synchronous = "NORMAL"
 cache_size_kib = 65536
 busy_timeout_ms = 5000
+
+[checkpoint]
+enabled = true
+resume = true
+name = "wiktionary-en"
+every_n_entries = 10000
+
+[workers]
+extraction_threads = 4
+queue_capacity = 2048
+
+[reindex]
+auto_incremental = true
+watermark_name = "default"
+chunk_size = 5000
+
+[export]
+pretty = false
+include_raw_html = false
+json_lines = true
+batch_size = 2000
+
+[release]
+artifact_dir = "dist"
+sample_db_name = "wiktionary_sample.sqlite"
 
 [logging]
 level = "info"

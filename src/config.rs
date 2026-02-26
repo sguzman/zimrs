@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -12,6 +13,11 @@ pub struct Config {
     pub extraction: ExtractionConfig,
     pub sqlite: SqliteConfig,
     pub logging: LoggingConfig,
+    pub checkpoint: CheckpointConfig,
+    pub workers: WorkerConfig,
+    pub reindex: ReindexConfig,
+    pub export: ExportConfig,
+    pub release: ReleaseConfig,
 }
 
 impl Default for Config {
@@ -22,6 +28,11 @@ impl Default for Config {
             extraction: ExtractionConfig::default(),
             sqlite: SqliteConfig::default(),
             logging: LoggingConfig::default(),
+            checkpoint: CheckpointConfig::default(),
+            workers: WorkerConfig::default(),
+            reindex: ReindexConfig::default(),
+            export: ExportConfig::default(),
+            release: ReleaseConfig::default(),
         }
     }
 }
@@ -86,9 +97,18 @@ pub struct ExtractionConfig {
     pub store_raw_html: bool,
     pub store_plain_text: bool,
     pub parse_language_sections: bool,
+    pub parse_relations: bool,
     pub language_allowlist: Vec<String>,
     pub min_definition_chars: usize,
     pub max_definitions_per_language: usize,
+    pub relation_types: Vec<String>,
+    pub max_relations_per_type: usize,
+    pub default_normalizer: String,
+    pub language_normalizers: HashMap<String, String>,
+    pub nested_list_depth_limit: usize,
+    pub confidence_threshold: f64,
+    pub include_title_as_alias: bool,
+    pub alias_min_length: usize,
 }
 
 impl Default for ExtractionConfig {
@@ -97,9 +117,22 @@ impl Default for ExtractionConfig {
             store_raw_html: false,
             store_plain_text: true,
             parse_language_sections: true,
+            parse_relations: true,
             language_allowlist: Vec::new(),
             min_definition_chars: 20,
             max_definitions_per_language: 32,
+            relation_types: vec![
+                "synonyms".to_owned(),
+                "antonyms".to_owned(),
+                "translations".to_owned(),
+            ],
+            max_relations_per_type: 48,
+            default_normalizer: "identity".to_owned(),
+            language_normalizers: HashMap::new(),
+            nested_list_depth_limit: 4,
+            confidence_threshold: 0.15,
+            include_title_as_alias: true,
+            alias_min_length: 2,
         }
     }
 }
@@ -144,6 +177,97 @@ impl Default for LoggingConfig {
             level: "info".to_owned(),
             json: false,
             progress_interval: 1_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct CheckpointConfig {
+    pub enabled: bool,
+    pub resume: bool,
+    pub name: String,
+    pub every_n_entries: u64,
+}
+
+impl Default for CheckpointConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            resume: true,
+            name: "default".to_owned(),
+            every_n_entries: 10_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct WorkerConfig {
+    pub extraction_threads: usize,
+    pub queue_capacity: usize,
+}
+
+impl Default for WorkerConfig {
+    fn default() -> Self {
+        let logical = num_cpus::get().max(1);
+        Self {
+            extraction_threads: logical.min(8),
+            queue_capacity: 2_048,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ReindexConfig {
+    pub auto_incremental: bool,
+    pub watermark_name: String,
+    pub chunk_size: usize,
+}
+
+impl Default for ReindexConfig {
+    fn default() -> Self {
+        Self {
+            auto_incremental: true,
+            watermark_name: "default".to_owned(),
+            chunk_size: 5_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ExportConfig {
+    pub pretty: bool,
+    pub include_raw_html: bool,
+    pub json_lines: bool,
+    pub batch_size: usize,
+}
+
+impl Default for ExportConfig {
+    fn default() -> Self {
+        Self {
+            pretty: false,
+            include_raw_html: false,
+            json_lines: true,
+            batch_size: 2_000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ReleaseConfig {
+    pub artifact_dir: PathBuf,
+    pub sample_db_name: String,
+}
+
+impl Default for ReleaseConfig {
+    fn default() -> Self {
+        Self {
+            artifact_dir: PathBuf::from("dist"),
+            sample_db_name: "wiktionary_sample.sqlite".to_owned(),
         }
     }
 }
