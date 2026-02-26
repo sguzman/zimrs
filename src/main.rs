@@ -10,6 +10,7 @@ use zimrs::db::Database;
 use zimrs::export::{ExportOptions, export_json};
 use zimrs::release::{build_release_artifacts, create_sample_database};
 use zimrs::run_conversion;
+use zimrs::verify::{VerifyOptions, verify_zim_file};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -34,6 +35,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Convert(ConvertArgs),
+    VerifyZim(VerifyZimArgs),
     Reindex(ReindexArgs),
     ExportJson(ExportJsonArgs),
     SampleDb(SampleDbArgs),
@@ -68,6 +70,18 @@ struct ReindexArgs {
 
     #[arg(long)]
     chunk_size: Option<usize>,
+}
+
+#[derive(Debug, clap::Args)]
+struct VerifyZimArgs {
+    #[arg(long)]
+    path: Option<PathBuf>,
+
+    #[arg(long)]
+    skip_checksum: bool,
+
+    #[arg(long, default_value_t = 8192)]
+    tail_window_bytes: usize,
 }
 
 #[derive(Debug, clap::Args)]
@@ -131,6 +145,7 @@ fn main() -> Result<()> {
         extraction_threads: None,
     })) {
         Commands::Convert(args) => run_convert(args, config, &cli.config),
+        Commands::VerifyZim(args) => run_verify_zim(args, config),
         Commands::Reindex(args) => run_reindex(args, config),
         Commands::ExportJson(args) => run_export_json(args, config),
         Commands::SampleDb(args) => run_sample_db(args),
@@ -212,6 +227,29 @@ fn run_reindex(args: ReindexArgs, mut config: Config) -> Result<()> {
         updated_pages = metrics.updated_pages,
         watermark = ?metrics.watermark,
         "incremental reindex complete"
+    );
+
+    Ok(())
+}
+
+fn run_verify_zim(args: VerifyZimArgs, config: Config) -> Result<()> {
+    let path = args.path.unwrap_or(config.input.zim_path);
+    let options = VerifyOptions {
+        checksum: !args.skip_checksum,
+        tail_window_bytes: args.tail_window_bytes,
+    };
+
+    let report = verify_zim_file(&path, &options)?;
+    info!(
+        path = %report.path,
+        size_bytes = report.size_bytes,
+        magic_ok = report.magic_ok,
+        tail_all_zero = report.tail_all_zero,
+        tail_zero_ratio = report.tail_zero_ratio,
+        article_count = report.article_count,
+        cluster_count = report.cluster_count,
+        checksum_ok = ?report.checksum_ok,
+        "zim integrity verification passed"
     );
 
     Ok(())
