@@ -36,3 +36,9 @@
 - [x] Provide default policy config TOML.
 - [x] Publish release artifacts and sample databases.
 - [x] Add JSON export mode for interoperability.
+
+## Operations & Reliability
+
+- [x] Add a `verify-zim` CLI subcommand so you can validate archive headers, checksums, and sparse tails before starting a build.
+- [x] Document throughput-tuned defaults and the recommended `convert` flags for long-running archives so operators know when to `--overwrite` or `--no-resume`.
+- [x] Surface the Harness test expectations (page/definition counts) in README so the success criteria are explicit.
