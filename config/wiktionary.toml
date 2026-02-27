@@ -36,23 +36,23 @@ Japanese = "cjk_basic"
 Chinese = "cjk_basic"
 
 [sqlite]
-batch_size = 250
+batch_size = 500
 overwrite = false
-enable_fts = true
-journal_mode = "WAL"
-synchronous = "NORMAL"
-cache_size_kib = 65536
+enable_fts = false
+journal_mode = "OFF"
+synchronous = "OFF"
+cache_size_kib = 16384
 busy_timeout_ms = 5000
 
 [checkpoint]
-enabled = true
+enabled = false
 resume = true
 name = "wiktionary-en"
-every_n_entries = 10000
+every_n_entries = 50000
 
 [workers]
-extraction_threads = 4
-queue_capacity = 2048
+extraction_threads = 12
+queue_capacity = 8192
 
 [reindex]
 auto_incremental = true
@@ -70,6 +70,6 @@ artifact_dir = "dist"
 sample_db_name = "wiktionary_sample.sqlite"
 
 [logging]
-level = "info"
+level = "warn"
 json = false
-progress_interval = 1000
+progress_interval = 10000
