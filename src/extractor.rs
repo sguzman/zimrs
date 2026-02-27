@@ -11,7 +11,7 @@ use crate::normalization::{canonicalize_lemma, generate_aliases, normalize_for_l
 
 static HEADING_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r#"(?is)<h(?P<level>[2-5])[^>]*>.*?<span[^>]*class=\"[^\"]*mw-headline[^\"]*\"[^>]*>(?P<title>.*?)</span>.*?</h[2-5]>"#,
+        r#"(?is)<h(?P<level>[2-5])[^>]*>\s*(?:<span[^>]*class="[^"]*mw-headline[^"]*"[^>]*>\s*)?(?P<title>.*?)(?:</span>)?\s*</h[2-5]>"#,
     )
     .expect("invalid heading regex")
 });
@@ -636,6 +636,23 @@ mod tests {
 
         assert_eq!(extracted.definitions.len(), 2);
         assert!(extracted.definitions[0].text.contains("First definition"));
+    }
+
+    #[test]
+    fn matches_language_heading_without_span() {
+        let html = r#"
+            <h2 id="English">English</h2>
+            <ol>
+              <li>Definition text long enough to survive the confidence filter.</li>
+            </ol>
+        "#;
+
+        let mut cfg = ExtractionConfig::default();
+        cfg.min_definition_chars = 15;
+        let extracted = extract_from_html("test", html, &cfg);
+
+        assert_eq!(extracted.definitions.len(), 1);
+        assert_eq!(extracted.definitions[0].language, "English");
     }
 
     #[test]
