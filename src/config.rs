@@ -81,7 +81,7 @@ impl Default for SelectionConfig {
         Self {
             start_index: 0,
             max_entries: None,
-            include_namespaces: vec!["A".to_owned()],
+            include_namespaces: vec!["C".to_owned(), "A".to_owned()],
             include_mime_prefixes: vec!["text/html".to_owned()],
             exclude_url_prefixes: vec!["Special:".to_owned(), "Wiktionary:".to_owned()],
             exclude_title_prefixes: vec!["Appendix:".to_owned(), "Reconstruction:".to_owned()],

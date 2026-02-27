@@ -5,7 +5,7 @@ sqlite_path = "out/wiktionary.sqlite"
 [selection]
 start_index = 0
 max_entries = 5000
-include_namespaces = ["A"]
+include_namespaces = ["C", "A"]
 include_mime_prefixes = ["text/html"]
 skip_redirects = true
 require_title = true
