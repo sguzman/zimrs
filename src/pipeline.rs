@@ -179,7 +179,7 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
 
                 let redirect_url = zim.get_by_url_index(redirect_idx).ok().map(|e| e.url);
                 let url = entry.url;
-                let title = if entry.title.is_empty() {
+                let title = if entry.title.trim().is_empty() {
                     redirect_url.clone().unwrap_or_else(|| url.clone())
                 } else {
                     entry.title
@@ -236,7 +236,7 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
                 let fallback_url = entry.url.clone();
                 let meta = HtmlJobMeta {
                     url: entry.url,
-                    title: if entry.title.is_empty() {
+                    title: if entry.title.trim().is_empty() {
                         fallback_url
                     } else {
                         entry.title
@@ -579,6 +579,8 @@ fn unix_now_ms() -> Result<u128> {
 }
 
 fn should_select_entry(entry: &DirectoryEntry, config: &Config) -> bool {
+    let resolved_title = entry_title_or_url(entry);
+
     let namespace = namespace_code(entry.namespace);
     if !config.selection.include_namespaces.is_empty()
         && !config
@@ -591,8 +593,12 @@ fn should_select_entry(entry: &DirectoryEntry, config: &Config) -> bool {
         return false;
     }
 
-    if config.selection.require_title && entry.title.trim().is_empty() {
-        debug!(url = %entry.url, "filtered due to empty title");
+    if config.selection.require_title && resolved_title.trim().is_empty() {
+        debug!(
+            url = %entry.url,
+            raw_title = %entry.title,
+            "filtered due to empty resolved title"
+        );
         return false;
     }
 
@@ -610,9 +616,13 @@ fn should_select_entry(entry: &DirectoryEntry, config: &Config) -> bool {
         .selection
         .exclude_title_prefixes
         .iter()
-        .any(|prefix| entry.title.starts_with(prefix))
+        .any(|prefix| resolved_title.starts_with(prefix))
     {
-        debug!(title = %entry.title, "filtered by title prefix");
+        debug!(
+            title = %resolved_title,
+            raw_title = %entry.title,
+            "filtered by title prefix"
+        );
         return false;
     }
 
@@ -629,4 +639,47 @@ fn should_select_entry(entry: &DirectoryEntry, config: &Config) -> bool {
     }
 
     true
+}
+
+fn entry_title_or_url(entry: &DirectoryEntry) -> &str {
+    let title = entry.title.trim();
+    if title.is_empty() {
+        entry.url.trim()
+    } else {
+        title
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zim::{MimeType, Namespace};
+
+    use crate::config::Config;
+
+    fn base_entry() -> DirectoryEntry {
+        DirectoryEntry {
+            mime_type: MimeType::Type("text/html".to_owned()),
+            namespace: Namespace::Articles,
+            revision: None,
+            url: "bed".to_owned(),
+            title: String::new(),
+            target: None,
+        }
+    }
+
+    #[test]
+    fn require_title_accepts_url_fallback_when_title_is_empty() {
+        let cfg = Config::default();
+        let entry = base_entry();
+        assert!(should_select_entry(&entry, &cfg));
+    }
+
+    #[test]
+    fn exclude_title_prefixes_uses_resolved_title() {
+        let mut cfg = Config::default();
+        cfg.selection.exclude_title_prefixes = vec!["bed".to_owned()];
+        let entry = base_entry();
+        assert!(!should_select_entry(&entry, &cfg));
+    }
 }

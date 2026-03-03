@@ -4,6 +4,7 @@ use html_escape::decode_html_entities;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sha2::{Digest, Sha256};
+use tracing::{debug, trace};
 use zim::{MimeType, Namespace};
 
 use crate::config::ExtractionConfig;
@@ -205,8 +206,16 @@ pub fn extract_from_html(title: &str, html: &str, config: &ExtractionConfig) -> 
     let allowlist: BTreeSet<String> = config
         .language_allowlist
         .iter()
-        .map(|value| value.to_lowercase())
+        .flat_map(|value| expand_language_tokens(value))
         .collect();
+
+    if !allowlist.is_empty() {
+        debug!(
+            configured_allowlist = ?config.language_allowlist,
+            normalized_allowlist = ?allowlist,
+            "compiled language allowlist"
+        );
+    }
 
     let relation_type_lookup: HashMap<String, String> = config
         .relation_types
@@ -226,7 +235,13 @@ pub fn extract_from_html(title: &str, html: &str, config: &ExtractionConfig) -> 
             continue;
         }
 
-        if !allowlist.is_empty() && !allowlist.contains(&language.to_lowercase()) {
+        let language_tokens = expand_language_tokens(&language);
+        if !allowlist.is_empty() && language_tokens.is_disjoint(&allowlist) {
+            trace!(
+                heading_language = %language,
+                heading_tokens = ?language_tokens,
+                "language heading skipped by allowlist"
+            );
             continue;
         }
 
@@ -369,6 +384,100 @@ pub fn extract_from_html(title: &str, html: &str, config: &ExtractionConfig) -> 
         definitions,
         relations,
         aliases,
+    }
+}
+
+fn expand_language_tokens(value: &str) -> BTreeSet<String> {
+    let normalized = normalize_text(value).to_lowercase();
+    let mut out = BTreeSet::new();
+    if normalized.is_empty() {
+        return out;
+    }
+
+    out.insert(normalized.clone());
+
+    let normalized_base = normalized
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(&normalized)
+        .trim();
+    if !normalized_base.is_empty() {
+        out.insert(normalized_base.to_owned());
+    }
+
+    if let Some(name) = language_code_to_name(normalized_base) {
+        out.insert(name.to_lowercase());
+    }
+
+    if let Some(code) = language_name_to_code(normalized_base) {
+        out.insert(code.to_owned());
+    }
+
+    out
+}
+
+fn language_code_to_name(code: &str) -> Option<&'static str> {
+    match code {
+        "en" => Some("English"),
+        "fr" => Some("French"),
+        "es" => Some("Spanish"),
+        "de" => Some("German"),
+        "it" => Some("Italian"),
+        "pt" => Some("Portuguese"),
+        "nl" => Some("Dutch"),
+        "sv" => Some("Swedish"),
+        "no" => Some("Norwegian"),
+        "da" => Some("Danish"),
+        "fi" => Some("Finnish"),
+        "pl" => Some("Polish"),
+        "cs" => Some("Czech"),
+        "ru" => Some("Russian"),
+        "uk" => Some("Ukrainian"),
+        "tr" => Some("Turkish"),
+        "ar" => Some("Arabic"),
+        "he" => Some("Hebrew"),
+        "hi" => Some("Hindi"),
+        "fa" => Some("Persian"),
+        "zh" => Some("Chinese"),
+        "ja" => Some("Japanese"),
+        "ko" => Some("Korean"),
+        "id" => Some("Indonesian"),
+        "vi" => Some("Vietnamese"),
+        "th" => Some("Thai"),
+        _ => None,
+    }
+}
+
+fn language_name_to_code(name: &str) -> Option<&'static str> {
+    match name {
+        "english" => Some("en"),
+        "french" => Some("fr"),
+        "spanish" => Some("es"),
+        "german" => Some("de"),
+        "italian" => Some("it"),
+        "portuguese" => Some("pt"),
+        "dutch" => Some("nl"),
+        "swedish" => Some("sv"),
+        "norwegian" => Some("no"),
+        "danish" => Some("da"),
+        "finnish" => Some("fi"),
+        "polish" => Some("pl"),
+        "czech" => Some("cs"),
+        "russian" => Some("ru"),
+        "ukrainian" => Some("uk"),
+        "turkish" => Some("tr"),
+        "arabic" => Some("ar"),
+        "hebrew" => Some("he"),
+        "hindi" => Some("hi"),
+        "persian" => Some("fa"),
+        "farsi" => Some("fa"),
+        "chinese" => Some("zh"),
+        "japanese" => Some("ja"),
+        "korean" => Some("ko"),
+        "indonesian" => Some("id"),
+        "vietnamese" => Some("vi"),
+        "thai" => Some("th"),
+        _ => None,
     }
 }
 
@@ -688,5 +797,21 @@ mod tests {
         let extracted = extract_from_html("test", html, &cfg);
         assert_eq!(extracted.definitions.len(), 1);
         assert_eq!(extracted.definitions[0].language, "French");
+    }
+
+    #[test]
+    fn allowlist_matches_iso_language_codes() {
+        let html = r#"
+            <h2><span class="mw-headline">English</span></h2>
+            <ol><li>Definition text long enough to survive filtering.</li></ol>
+        "#;
+
+        let mut cfg = ExtractionConfig::default();
+        cfg.language_allowlist = vec!["en".to_owned()];
+        cfg.min_definition_chars = 10;
+
+        let extracted = extract_from_html("test", html, &cfg);
+        assert_eq!(extracted.definitions.len(), 1);
+        assert_eq!(extracted.definitions[0].language, "English");
     }
 }
