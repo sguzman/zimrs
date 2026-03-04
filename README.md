@@ -1,16 +1,21 @@
 # zimrs
 
-`zimrs` converts an English Wiktionary `.zim` archive into a queryable SQLite dictionary database and includes operational tooling for reindexing, export, benchmarking, and release artifact packaging.
+`zimrs` converts a Wiktionary `.zim` archive into a queryable dictionary database and includes operational tooling for verification, reindexing, export, benchmarking, and release packaging.
+
+Default backend is PostgreSQL (`data.dictionary`). SQLite remains fully supported as a compatibility backend.
 
 ## Features
 
-- Configurable ZIM -> SQLite ingestion with namespace/MIME/prefix filters.
+- Postgres-first ingestion with automatic startup checks, database bootstrap, and schema management.
+- SQLite compatibility mode for local/offline workflows.
+- Configurable ZIM -> DB ingestion with namespace/MIME/prefix filters.
 - Resumable checkpointing for long-running archive conversions.
 - Optional parallel extraction workers.
 - Nested-list-aware definition extraction and relation extraction (`synonyms`, `antonyms`, `translations`).
 - Per-language normalization plugins and confidence scoring.
 - Alias normalization table for search (`lemma_aliases`).
-- Optional FTS5 indexing and incremental reindex command.
+- Optional search indexing (`page_fts`) for both backends.
+- Incremental reindex command.
 - JSON/JSONL export command.
 - Release artifact builder with packaged sample database.
 
@@ -26,7 +31,7 @@ cargo run --release -- --config config/wiktionary.toml reindex
 # Export to JSONL
 cargo run --release -- --config config/wiktionary.toml export-json --output out/wiktionary.jsonl
 
-# Build synthetic sample DB
+# Build synthetic sample DB (SQLite helper for release tooling)
 cargo run --release -- --config config/wiktionary.toml sample-db --output out/sample.sqlite
 
 # Build release artifacts bundle (archive + checksum + sample DB)
@@ -45,29 +50,90 @@ is equivalent to:
 cargo run --release -- --config config/wiktionary.toml convert
 ```
 
+## Backend Selection
+
+Precedence order:
+
+1. CLI flags (`--sqlite`, `--backend`, `--pg-*`)
+2. `config/wiktionary.toml`
+3. built-in defaults
+
+Backend flags:
+
+- `--backend postgres`
+- `--backend sqlite`
+- `--sqlite` (convenience alias for SQLite compatibility mode)
+
+### PostgreSQL CLI overrides
+
+- `--pg-host`
+- `--pg-port`
+- `--pg-user`
+- `--pg-password`
+- `--pg-database`
+- `--pg-schema`
+- `--pg-sslmode`
+
 ## Config
 
-Main config file: [config/wiktionary.toml](/home/admin/Code/rust/zimrs/config/wiktionary.toml)
+Main config file: [config/wiktionary.toml](/win/linux/Code/rust/zimrs/config/wiktionary.toml)
 
 Important sections:
 
+- `backend`: storage backend (`postgres` default, `sqlite` optional).
+- `postgres`: server/database/schema connection settings.
+- `input`: source ZIM path + SQLite file path (used when backend is SQLite).
 - `selection`: entry filtering and extraction window.
 - `checkpoint`: resumable ingestion control.
 - `workers`: extraction parallelism (`extraction_threads`).
 - `extraction`: parser behavior, relation toggles, normalizer mapping, confidence threshold.
-- `reindex`: incremental FTS watermark policy.
+- `reindex`: incremental reindex watermark policy.
 - `export`: JSON output defaults.
 - `release`: artifact directory and sample DB naming.
 
-**Config as Policy**
-`config/wiktionary.toml` is the policy document for the Wiktionary archive. Each `[selection]`, `[extraction]`, `[sqlite]`, `[checkpoint]`, and `[workers]` block tunes what data is pulled from the ZIM and how the SQLite build proceeds, so a single file encodes the conversion policy for that specific archive. You can add new policy variants just by cloning the TOML, pointing `--config` at the copy, and tweaking the overlays that control namespaces, relation extraction, FTS repr, and checkpoint cadence.
+## PostgreSQL Defaults
 
-**Performance Tuning**
-The throughput-focused defaults in `config/wiktionary.toml` bias toward fewer disk syncs and bigger batches:
-`sqlite.batch_size` = 2 000 commits longer transactions, `sqlite.cache_size_kib` = 131 072 lets SQLite keep more pages in RAM, and `sqlite.busy_timeout_ms` = 30 000 gives the writers time to finish when the DB is locked. `sqlite.journal_mode` and `sqlite.synchronous` are already set to `OFF`, so the import can skip WAL/journal writes; enable the journal again only if you need crash-safety while you keep `checkpoint.enabled = true` to keep resume metadata but only persist it every 100 000 entries. `workers.extraction_threads` = 16 and a 16 384-entry queue keeps all cores busy while the pipeline streams through clusters.
+Defaults come from your compose-aligned setup (`tmp/docker-compose.yaml`):
 
-**Run & Verify**
-- Generate the SQLite dictionary with the conversion command. For example, on a freshly downloaded ZIM file run:
+- host: `127.0.0.1`
+- port: `5432`
+- user: `admin`
+- password: `admin`
+- database: `data`
+- schema: `dictionary`
+- sslmode: `disable`
+
+Startup behavior in Postgres mode:
+
+- retries with backoff for transient connectivity failures.
+- validates and (if missing) creates target database.
+- creates target schema if needed.
+- creates all managed tables/indexes in target schema.
+
+Overwrite behavior (`convert --overwrite`) in Postgres mode:
+
+- drops only target schema and recreates it.
+- recreates all managed objects from scratch.
+- keeps other schemas/databases untouched.
+
+## SQLite Compatibility Mode
+
+SQLite mode preserves previous behavior and uses `input.sqlite_path` + `[sqlite]` settings.
+
+Example:
+
+```bash
+cargo run --release -- \
+  --config config/wiktionary.toml \
+  --sqlite \
+  convert \
+  --overwrite \
+  --no-resume
+```
+
+## Run & Verify
+
+- Generate dictionary data (Postgres default):
   ```bash
   cargo run --release -- \
     --config config/wiktionary.toml \
@@ -77,34 +143,34 @@ The throughput-focused defaults in `config/wiktionary.toml` bias toward fewer di
     --overwrite \
     --no-resume
   ```
-  `--overwrite` clears `out/wiktionary.sqlite`, `--no-resume` skips the checkpoint resume path, and `--max-entries` lets you throttle the work load. Omit `--overwrite` once you want to keep the previous data or drop `--no-resume` to continue from `checkpoint.name`.
 
-- Verify a downloaded ZIM with the new `verify-zim` subcommand before starting conversion:
+- Verify a downloaded ZIM before conversion:
   ```bash
   cargo run --release -- --config config/wiktionary.toml verify-zim
   ```
-  Add `--skip-checksum` if you need a quick header/tail check without validating the checksum, or adjust `--tail-window-bytes` if the archive is very large.
+  Add `--skip-checksum` for quick checks or tune `--tail-window-bytes` for very large archives.
 
-**SQLite Schema**
-- `pages`: canonical entry records (URL, title, namespace, MIME, SHA256, timestamps). `definitions`, `relations`, and `lemma_aliases` reference `pages(id)` to store extracted text, relation targets, and alias metadata. `ingestion_runs` and `ingestion_checkpoints` track run metrics/resume state.
-- `relations` and `definitions` both carry a `language` column so every parsed sense preserves which language section it came from; `relations.relation_type` captures synonyms/antonyms/translations. `page_fts` (if enabled) provides a materialized FTS5 index for fast lookups.
-- `reindex_state` remembers watermark progress for incremental reindexes.
+## Managed Schema
 
-**Language Coverage**
-Wiktionary is multilingual; the importer preserves the source language for each definition/relation and can store aliases in whichever language section produced them. The default `extraction.language_normalizers` mapping seeds normalization plugins for English, French, Spanish, Japanese, and Chinese, and the `language` columns let you query how many distinct language sections made it into each run.
+Managed tables (both backends):
 
-## SQLite schema
+- `pages`: canonical entry records (URL, title, namespace, MIME, content hash, timestamps).
+- `definitions`: extracted definition senses with language + normalized text + confidence.
+- `relations`: extracted relation targets (synonyms/antonyms/translations) with confidence.
+- `lemma_aliases`: normalized lookup aliases.
+- `ingestion_runs`: run-level metrics.
+- `ingestion_checkpoints`: resume metadata.
+- `reindex_state`: incremental reindex watermarks.
+- `page_fts` (if enabled): search materialization.
 
-Core tables:
+Indexing behavior:
 
-- `pages`
-- `definitions`
-- `relations`
-- `lemma_aliases`
-- `ingestion_runs`
-- `ingestion_checkpoints`
-- `reindex_state`
-- `page_fts` (when enabled)
+- SQLite: FTS5 virtual table for `page_fts`.
+- Postgres: `page_fts` with generated `tsvector` + GIN index.
+
+## Language Coverage
+
+Wiktionary is multilingual. Import preserves source language for definitions/relations and stores aliases from extracted language sections. Language allowlists support both language names and ISO-like short codes (for example `English` and `en`).
 
 ## Benchmarks
 
@@ -114,7 +180,7 @@ Suite:
 cargo bench --bench extraction_bench -- --sample-size 20
 ```
 
-Baseline results are tracked in [benchmarks/BASELINE.md](/home/admin/Code/rust/zimrs/benchmarks/BASELINE.md).
+Baseline results are tracked in [benchmarks/BASELINE.md](/win/linux/Code/rust/zimrs/benchmarks/BASELINE.md).
 
 ## Tests
 
@@ -132,10 +198,10 @@ Harness behavior:
 
 - Uses `tmp/wiktionary_en_all_nopic_2026-02.zim` by default.
 - Override with `ZIMRS_TEST_ZIM=/path/to/file.zim`.
-- Auto-skips when the `.zim` tail looks sparse/incomplete (common with interrupted preallocated downloads).
-- As of this release, the harness also asserts that the extracted trial data contains more than 25 pages and 25 definitions so you can treat a passing `cargo test harness_wiktionary_sample -- --ignored --nocapture` as a quick success signal for a real archive.
+- Auto-skips when the `.zim` tail appears sparse/incomplete.
+- Uses SQLite compatibility mode for deterministic local test behavior.
 
-## Release artifacts
+## Release Artifacts
 
 Local artifact script:
 
@@ -143,17 +209,17 @@ Local artifact script:
 ./scripts/build_release_artifacts.sh config/wiktionary.toml
 ```
 
-Output is placed in `dist/`:
+Output in `dist/`:
 
 - `zimrs-release.tar.gz`
 - `zimrs-release.sha256`
 - unpacked staging directory with binary, docs, config, and sample DB
 
-CI workflow for artifact publication:
+CI workflow:
 
-- [release-artifacts.yml](/home/admin/Code/rust/zimrs/.github/workflows/release-artifacts.yml)
+- [release-artifacts.yml](/win/linux/Code/rust/zimrs/.github/workflows/release-artifacts.yml)
 
 ## Notes
 
-- The attached `tmp/wiktionary_en_all_nopic_2026-02.zim` in this workspace appears sparse/incomplete, so full extraction quality should be validated against a completed archive.
 - The project uses a local patched `zim` crate under `vendor/zim` to tolerate sentinel pointer values in newer ZIM metadata.
+- If your ZIM file is incomplete/sparse, conversion quality will appear degraded regardless of backend.
