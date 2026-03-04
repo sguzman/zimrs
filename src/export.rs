@@ -98,8 +98,7 @@ pub fn export_json(options: &ExportOptions) -> Result<ExportMetrics> {
             export_from_sqlite(&conn, options, &mut writer, &mut wrote_any_array_item)?
         }
         StorageBackend::Postgres => {
-            let mut pg_cfg = build_pg_config(&options.config.postgres)?;
-            pg_cfg.dbname(&options.config.postgres.database);
+            let pg_cfg = build_pg_config(&options.config.postgres)?;
             let mut client = connect_postgres_with_retry(&options.config.postgres, pg_cfg)?;
             export_from_postgres(
                 &mut client,
@@ -482,6 +481,7 @@ fn build_pg_config(pg: &PostgresConfig) -> Result<postgres::Config> {
     cfg.port(pg.port);
     cfg.user(&pg.user);
     cfg.password(&pg.password);
+    cfg.dbname(&pg.database);
     cfg.connect_timeout(Duration::from_secs(pg.connect_timeout_secs.max(1)));
 
     match pg.sslmode.to_lowercase().as_str() {

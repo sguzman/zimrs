@@ -355,8 +355,7 @@ fn ensure_postgres_database(pg: &PostgresConfig) -> Result<()> {
     let backoff = Duration::from_millis(pg.retry_backoff_ms.max(1));
 
     for attempt in 1..=connect_retries {
-        let mut target = build_pg_config(pg)?;
-        target.dbname(&pg.database);
+        let target = build_pg_config(pg)?;
 
         match target.connect(NoTls) {
             Ok(_) => {
@@ -423,6 +422,7 @@ fn build_pg_config(pg: &PostgresConfig) -> Result<postgres::Config> {
     cfg.port(pg.port);
     cfg.user(&pg.user);
     cfg.password(&pg.password);
+    cfg.dbname(&pg.database);
     cfg.connect_timeout(Duration::from_secs(pg.connect_timeout_secs.max(1)));
 
     match pg.sslmode.to_lowercase().as_str() {
