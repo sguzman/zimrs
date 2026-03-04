@@ -1,10 +1,13 @@
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tracing::{info, warn};
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 use zimrs::config::{Config, StorageBackend};
 use zimrs::db::Database;
 use zimrs::export::{ExportOptions, export_json};
@@ -27,6 +30,13 @@ struct Cli {
 
     #[arg(long, global = true)]
     log_level: Option<String>,
+
+    #[arg(
+        long,
+        global = true,
+        help = "Enable debug-level logs and write a copy to logs/"
+    )]
+    debug: bool,
 
     #[arg(long, global = true)]
     backend: Option<StorageBackend>,
@@ -189,7 +199,11 @@ fn main() -> Result<()> {
         config.postgres.sslmode = sslmode;
     }
 
-    init_tracing(&config)?;
+    if cli.debug {
+        config.logging.level = "debug".to_owned();
+    }
+
+    let _log_guard = init_tracing(&config, cli.debug)?;
 
     match cli.command.unwrap_or(Commands::Convert(ConvertArgs {
         max_entries: None,
@@ -386,7 +400,7 @@ fn run_build_artifacts(
     Ok(())
 }
 
-fn init_tracing(config: &Config) -> Result<()> {
+fn init_tracing(config: &Config, debug_to_file: bool) -> Result<Option<WorkerGuard>> {
     let default_directive = config
         .logging
         .level
@@ -396,6 +410,40 @@ fn init_tracing(config: &Config) -> Result<()> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(default_directive)
         .from_env_lossy();
+
+    if debug_to_file {
+        std::fs::create_dir_all("logs").context("failed to create logs directory")?;
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .context("system clock is before UNIX_EPOCH")?
+            .as_millis();
+        let file_name = format!("zimrs-{now_ms}.log");
+        let file_appender = tracing_appender::rolling::never("logs", &file_name);
+        let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
+
+        let make_writer = std::io::stdout.and(file_writer);
+        let builder = tracing_subscriber::fmt()
+            .with_target(true)
+            .with_thread_ids(true)
+            .with_env_filter(env_filter)
+            .with_file(true)
+            .with_line_number(true)
+            .with_writer(make_writer);
+
+        if config.logging.json {
+            builder
+                .json()
+                .try_init()
+                .map_err(|error| anyhow::anyhow!("failed to init JSON logger: {error}"))?;
+        } else {
+            builder
+                .try_init()
+                .map_err(|error| anyhow::anyhow!("failed to init logger: {error}"))?;
+        }
+
+        info!(log_file = %format!("logs/{file_name}"), "debug file logging enabled");
+        return Ok(Some(guard));
+    }
 
     let builder = tracing_subscriber::fmt()
         .with_target(true)
@@ -415,5 +463,5 @@ fn init_tracing(config: &Config) -> Result<()> {
             .map_err(|error| anyhow::anyhow!("failed to init logger: {error}"))?;
     }
 
-    Ok(())
+    Ok(None)
 }
