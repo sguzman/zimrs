@@ -37,6 +37,8 @@ fn harness_wiktionary_sample() -> Result<()> {
 
     let config_toml = format!(
         r#"
+backend = "sqlite"
+
 [input]
 zim_path = "{}"
 sqlite_path = "{}"

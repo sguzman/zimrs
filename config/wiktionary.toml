@@ -1,6 +1,20 @@
+backend = "postgres"
+
 [input]
 zim_path = "tmp/wiktionary_en_all_nopic_2026-02.zim"
 sqlite_path = "out/wiktionary.sqlite"
+
+[postgres]
+host = "127.0.0.1"
+port = 5432
+user = "admin"
+password = "admin"
+database = "data"
+schema = "dictionary"
+sslmode = "disable"
+connect_timeout_secs = 10
+max_connection_retries = 5
+retry_backoff_ms = 750
 
 [selection]
 start_index = 0

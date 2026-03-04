@@ -3,12 +3,28 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use clap::ValueEnum;
 use serde::Deserialize;
+
+#[derive(Debug, Clone, Copy, Deserialize, ValueEnum, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageBackend {
+    Postgres,
+    Sqlite,
+}
+
+impl Default for StorageBackend {
+    fn default() -> Self {
+        Self::Postgres
+    }
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub backend: StorageBackend,
     pub input: InputConfig,
+    pub postgres: PostgresConfig,
     pub selection: SelectionConfig,
     pub extraction: ExtractionConfig,
     pub sqlite: SqliteConfig,
@@ -23,7 +39,9 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            backend: StorageBackend::default(),
             input: InputConfig::default(),
+            postgres: PostgresConfig::default(),
             selection: SelectionConfig::default(),
             extraction: ExtractionConfig::default(),
             sqlite: SqliteConfig::default(),
@@ -59,6 +77,38 @@ impl Default for InputConfig {
         Self {
             zim_path: PathBuf::from("tmp/wiktionary_en_all_nopic_2026-02.zim"),
             sqlite_path: PathBuf::from("out/wiktionary.sqlite"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct PostgresConfig {
+    pub host: String,
+    pub port: u16,
+    pub user: String,
+    pub password: String,
+    pub database: String,
+    pub schema: String,
+    pub sslmode: String,
+    pub connect_timeout_secs: u64,
+    pub max_connection_retries: usize,
+    pub retry_backoff_ms: u64,
+}
+
+impl Default for PostgresConfig {
+    fn default() -> Self {
+        Self {
+            host: "127.0.0.1".to_owned(),
+            port: 5432,
+            user: "admin".to_owned(),
+            password: "admin".to_owned(),
+            database: "data".to_owned(),
+            schema: "dictionary".to_owned(),
+            sslmode: "disable".to_owned(),
+            connect_timeout_secs: 10,
+            max_connection_retries: 5,
+            retry_backoff_ms: 750,
         }
     }
 }

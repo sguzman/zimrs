@@ -8,7 +8,7 @@ use tracing::{debug, info, info_span, trace, warn};
 use zim::{DirectoryEntry, MimeType, Target, Zim};
 
 use crate::config::Config;
-use crate::db::{CheckpointState, Database, upsert_page};
+use crate::db::{CheckpointState, Database};
 use crate::extractor::{
     ExtractedPage, extract_from_html, mime_type_label, namespace_code, sha256_hex,
 };
@@ -82,7 +82,7 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
         "zim header loaded"
     );
 
-    let mut db = Database::open(config)?;
+    let db = Database::open(config)?;
     db.init_schema()?;
 
     let total_articles = zim.header.article_count;
@@ -122,11 +122,9 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
         "starting extraction window"
     );
 
-    let enable_fts = db.enable_fts();
     let batch_size = config.sqlite.batch_size.max(1) as u64;
     let progress_interval = config.logging.progress_interval.max(1);
 
-    let mut tx = db.begin_transaction()?;
     let mut checkpoint_last_idx = start.saturating_sub(1);
 
     let extraction_threads = config.workers.extraction_threads.max(1);
@@ -203,15 +201,7 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
                     aliases: Vec::new(),
                 };
 
-                persist_page(&mut tx, &page, &mut metrics, enable_fts)?;
-                if metrics.ingested_pages % batch_size == 0 {
-                    trace!(
-                        ingested_pages = metrics.ingested_pages,
-                        "committing batch transaction"
-                    );
-                    tx.commit()?;
-                    tx = db.begin_transaction()?;
-                }
+                persist_page(&db, &page, &mut metrics)?;
             }
             Some(Target::Cluster(cluster_idx, blob_idx)) => {
                 let cluster = match zim.get_cluster(cluster_idx) {
@@ -264,11 +254,7 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
                 } else {
                     match build_page_from_html(meta, html, config) {
                         Ok(page) => {
-                            persist_page(&mut tx, &page, &mut metrics, enable_fts)?;
-                            if metrics.ingested_pages % batch_size == 0 {
-                                tx.commit()?;
-                                tx = db.begin_transaction()?;
-                            }
+                            persist_page(&db, &page, &mut metrics)?;
                         }
                         Err(error) => {
                             metrics.extraction_errors += 1;
@@ -303,11 +289,7 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
             }
 
             if let Some(page) = result.page {
-                persist_page(&mut tx, &page, &mut metrics, enable_fts)?;
-                if metrics.ingested_pages % batch_size == 0 {
-                    tx.commit()?;
-                    tx = db.begin_transaction()?;
-                }
+                persist_page(&db, &page, &mut metrics)?;
             }
         }
 
@@ -315,7 +297,6 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
             && config.checkpoint.every_n_entries > 0
             && metrics.scanned_entries % config.checkpoint.every_n_entries == 0
         {
-            tx.commit()?;
             db.save_checkpoint(
                 &config.checkpoint.name,
                 &CheckpointState {
@@ -326,7 +307,14 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
                 },
             )?;
             metrics.checkpoint_updates += 1;
-            tx = db.begin_transaction()?;
+        }
+
+        if metrics.ingested_pages % batch_size == 0 && metrics.ingested_pages > 0 {
+            trace!(
+                ingested_pages = metrics.ingested_pages,
+                backend = db.backend_name(),
+                "batch boundary reached"
+            );
         }
 
         if metrics.scanned_entries % progress_interval == 0 {
@@ -363,11 +351,7 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
             }
 
             if let Some(page) = result.page {
-                persist_page(&mut tx, &page, &mut metrics, enable_fts)?;
-                if metrics.ingested_pages % batch_size == 0 {
-                    tx.commit()?;
-                    tx = db.begin_transaction()?;
-                }
+                persist_page(&db, &page, &mut metrics)?;
             }
         }
     }
@@ -377,8 +361,6 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
             warn!(?error, "worker thread join failed");
         }
     }
-
-    tx.commit()?;
 
     if config.checkpoint.enabled {
         db.save_checkpoint(
@@ -522,13 +504,8 @@ fn collect_worker_results(
     out
 }
 
-fn persist_page(
-    tx: &mut rusqlite::Transaction<'_>,
-    page: &ExtractedPage,
-    metrics: &mut RunMetrics,
-    enable_fts: bool,
-) -> Result<()> {
-    if let Err(error) = upsert_page(tx, page, enable_fts) {
+fn persist_page(db: &Database, page: &ExtractedPage, metrics: &mut RunMetrics) -> Result<()> {
+    if let Err(error) = db.upsert_page(page) {
         metrics.extraction_errors += 1;
         warn!(error = %error, "database upsert failed");
         return Ok(());

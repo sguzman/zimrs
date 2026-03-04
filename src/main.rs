@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tracing::{info, warn};
 use tracing_subscriber::EnvFilter;
-use zimrs::config::Config;
+use zimrs::config::{Config, StorageBackend};
 use zimrs::db::Database;
 use zimrs::export::{ExportOptions, export_json};
 use zimrs::release::{build_release_artifacts, create_sample_database};
@@ -16,7 +16,7 @@ use zimrs::verify::{VerifyOptions, verify_zim_file};
 #[command(
     author,
     version,
-    about = "Configurable Wiktionary ZIM to SQLite converter and tooling"
+    about = "Configurable Wiktionary ZIM converter with Postgres-first and SQLite compatibility backends"
 )]
 struct Cli {
     #[arg(short, long, default_value = "config/wiktionary.toml", global = true)]
@@ -27,6 +27,33 @@ struct Cli {
 
     #[arg(long, global = true)]
     log_level: Option<String>,
+
+    #[arg(long, global = true)]
+    backend: Option<StorageBackend>,
+
+    #[arg(long, global = true, help = "Force SQLite backend compatibility mode")]
+    sqlite: bool,
+
+    #[arg(long, global = true)]
+    pg_host: Option<String>,
+
+    #[arg(long, global = true)]
+    pg_port: Option<u16>,
+
+    #[arg(long, global = true)]
+    pg_user: Option<String>,
+
+    #[arg(long, global = true)]
+    pg_password: Option<String>,
+
+    #[arg(long, global = true)]
+    pg_database: Option<String>,
+
+    #[arg(long, global = true)]
+    pg_schema: Option<String>,
+
+    #[arg(long, global = true)]
+    pg_sslmode: Option<String>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -134,6 +161,34 @@ fn main() -> Result<()> {
         config.logging.level = level;
     }
 
+    if cli.sqlite {
+        config.backend = StorageBackend::Sqlite;
+    } else if let Some(backend) = cli.backend {
+        config.backend = backend;
+    }
+
+    if let Some(host) = cli.pg_host {
+        config.postgres.host = host;
+    }
+    if let Some(port) = cli.pg_port {
+        config.postgres.port = port;
+    }
+    if let Some(user) = cli.pg_user {
+        config.postgres.user = user;
+    }
+    if let Some(password) = cli.pg_password {
+        config.postgres.password = password;
+    }
+    if let Some(database) = cli.pg_database {
+        config.postgres.database = database;
+    }
+    if let Some(schema) = cli.pg_schema {
+        config.postgres.schema = schema;
+    }
+    if let Some(sslmode) = cli.pg_sslmode {
+        config.postgres.sslmode = sslmode;
+    }
+
     init_tracing(&config)?;
 
     match cli.command.unwrap_or(Commands::Convert(ConvertArgs {
@@ -163,6 +218,7 @@ fn run_convert(args: ConvertArgs, mut config: Config, config_path: &PathBuf) -> 
     }
 
     if args.overwrite {
+        // Overwrite is backend-agnostic; SQLite removes the DB file, Postgres resets target schema.
         config.sqlite.overwrite = true;
     }
 
@@ -181,6 +237,11 @@ fn run_convert(args: ConvertArgs, mut config: Config, config_path: &PathBuf) -> 
     info!(
         config_path = %config_path.display(),
         zim_path = %config.input.zim_path.display(),
+        backend = ?config.backend,
+        pg_host = %config.postgres.host,
+        pg_port = config.postgres.port,
+        pg_database = %config.postgres.database,
+        pg_schema = %config.postgres.schema,
         sqlite_path = %config.input.sqlite_path.display(),
         "starting conversion"
     );
@@ -259,7 +320,7 @@ fn run_export_json(args: ExportJsonArgs, mut config: Config) -> Result<()> {
     config.sqlite.overwrite = false;
 
     let options = ExportOptions {
-        sqlite_path: config.input.sqlite_path,
+        config: config.clone(),
         output_path: args.output,
         pretty: args.pretty || config.export.pretty,
         include_raw_html: args.include_raw_html || config.export.include_raw_html,
