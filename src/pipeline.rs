@@ -507,7 +507,11 @@ fn collect_worker_results(
 fn persist_page(db: &Database, page: &ExtractedPage, metrics: &mut RunMetrics) -> Result<()> {
     if let Err(error) = db.upsert_page(page) {
         metrics.extraction_errors += 1;
-        warn!(error = %error, "database upsert failed");
+        warn!(
+            error = %error,
+            error_chain = %format!("{error:#}"),
+            "database upsert failed"
+        );
         return Ok(());
     }
 

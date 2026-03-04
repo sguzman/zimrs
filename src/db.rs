@@ -460,6 +460,16 @@ fn pg_init_schema(pg: &PostgresBackend) -> Result<()> {
     let runs = pg_table(&pg.schema, "ingestion_runs");
     let checkpoints = pg_table(&pg.schema, "ingestion_checkpoints");
     let reindex_state = pg_table(&pg.schema, "reindex_state");
+    let idx_definitions_norm = format!(
+        "{}.{}",
+        pg_ident(&pg.schema),
+        pg_ident("idx_definitions_norm")
+    );
+    let idx_relations_target = format!(
+        "{}.{}",
+        pg_ident(&pg.schema),
+        pg_ident("idx_relations_target")
+    );
 
     let ddl = format!(
         r#"
@@ -544,16 +554,24 @@ fn pg_init_schema(pg: &PostgresBackend) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_pages_updated_at ON {pages}(updated_at);
         CREATE INDEX IF NOT EXISTS idx_definitions_page ON {definitions}(page_id);
         CREATE INDEX IF NOT EXISTS idx_definitions_language ON {definitions}(language);
-        CREATE INDEX IF NOT EXISTS idx_definitions_norm ON {definitions}(normalized_text);
         CREATE INDEX IF NOT EXISTS idx_relations_page ON {relations}(page_id);
         CREATE INDEX IF NOT EXISTS idx_relations_type ON {relations}(relation_type);
-        CREATE INDEX IF NOT EXISTS idx_relations_target ON {relations}(normalized_target);
         CREATE INDEX IF NOT EXISTS idx_aliases_page ON {aliases}(page_id);
         CREATE INDEX IF NOT EXISTS idx_aliases_norm ON {aliases}(normalized_alias);
         "#
     );
 
     conn.batch_execute(&ddl)?;
+
+    let long_text_index_sql = format!(
+        r#"
+        DROP INDEX IF EXISTS {idx_definitions_norm};
+        DROP INDEX IF EXISTS {idx_relations_target};
+        CREATE INDEX IF NOT EXISTS idx_definitions_norm ON {definitions} ((md5(normalized_text)));
+        CREATE INDEX IF NOT EXISTS idx_relations_target ON {relations} ((md5(normalized_target)));
+        "#,
+    );
+    conn.batch_execute(&long_text_index_sql)?;
 
     if pg.enable_fts {
         let page_fts = pg_table(&pg.schema, "page_fts");
