@@ -407,9 +407,17 @@ fn init_tracing(config: &Config, debug_to_file: bool) -> Result<Option<WorkerGua
         .parse()
         .context("invalid logging.level directive")?;
 
-    let env_filter = EnvFilter::builder()
+    let mut env_filter = EnvFilter::builder()
         .with_default_directive(default_directive)
         .from_env_lossy();
+
+    if debug_to_file {
+        // Keep application debug logs, but avoid flooding from DB client internals.
+        env_filter = env_filter
+            .add_directive("tokio_postgres=warn".parse()?)
+            .add_directive("postgres=info".parse()?)
+            .add_directive("r2d2=info".parse()?);
+    }
 
     if debug_to_file {
         std::fs::create_dir_all("logs").context("failed to create logs directory")?;
