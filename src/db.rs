@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use tracing::debug;
 
 use crate::config::Config;
 use crate::extractor::ExtractedPage;
@@ -334,9 +335,9 @@ pub fn upsert_page(tx: &Transaction<'_>, page: &ExtractedPage, enable_fts: bool)
     }
 
     for relation in &page.relations {
-        tx.execute(
+        let rows_affected = tx.execute(
             r#"
-            INSERT INTO relations(
+            INSERT OR IGNORE INTO relations(
                 page_id,
                 language,
                 relation_type,
@@ -359,6 +360,16 @@ pub fn upsert_page(tx: &Transaction<'_>, page: &ExtractedPage, enable_fts: bool)
                 relation.confidence,
             ],
         )?;
+        if rows_affected == 0 {
+            debug!(
+                page_url = %page.url,
+                language = %relation.language,
+                relation_type = %relation.relation_type,
+                rel_order = relation.order_in_type,
+                target_term = %relation.target_term,
+                "skipped duplicate relation row"
+            );
+        }
     }
 
     for alias in &page.aliases {

@@ -162,10 +162,11 @@ pub fn run_conversion(config: &Config) -> Result<RunMetrics> {
             continue;
         }
 
+        let span_title = entry_title_or_url(&entry).to_owned();
         let span = info_span!(
             "extract_entry",
             entry_index = idx,
-            title = %entry.title,
+            title = %span_title,
             url = %entry.url
         );
         let _span_guard = span.enter();

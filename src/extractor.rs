@@ -225,6 +225,7 @@ pub fn extract_from_html(title: &str, html: &str, config: &ExtractionConfig) -> 
 
     let mut definitions = Vec::new();
     let mut relations = Vec::new();
+    let mut relation_order_state: HashMap<(String, String), i64> = HashMap::new();
     let mut confidence_total = 0.0_f64;
     let mut confidence_count = 0_u64;
     let mut language_set = BTreeSet::new();
@@ -325,10 +326,11 @@ pub fn extract_from_html(title: &str, html: &str, config: &ExtractionConfig) -> 
             for (range_start, range_end, relation_type) in relation_ranges {
                 let subsection = &section_html[range_start..range_end];
                 let relation_items = extract_list_items(subsection, config.nested_list_depth_limit);
-                let mut relation_order = 0_i64;
+                let state_key = (language.clone(), relation_type.clone());
+                let relation_order = relation_order_state.entry(state_key).or_insert(0_i64);
 
                 for item in relation_items {
-                    if relation_order as usize >= config.max_relations_per_type {
+                    if *relation_order as usize >= config.max_relations_per_type {
                         break;
                     }
 
@@ -348,17 +350,17 @@ pub fn extract_from_html(title: &str, html: &str, config: &ExtractionConfig) -> 
                         relations.push(ExtractedRelation {
                             language: language.clone(),
                             relation_type: relation_type.clone(),
-                            order_in_type: relation_order,
+                            order_in_type: *relation_order,
                             source_text: source_text.clone(),
                             target_term,
                             normalized_target,
                             confidence,
                         });
-                        relation_order += 1;
+                        *relation_order += 1;
                         confidence_total += confidence;
                         confidence_count += 1;
 
-                        if relation_order as usize >= config.max_relations_per_type {
+                        if *relation_order as usize >= config.max_relations_per_type {
                             break;
                         }
                     }
@@ -813,5 +815,31 @@ mod tests {
         let extracted = extract_from_html("test", html, &cfg);
         assert_eq!(extracted.definitions.len(), 1);
         assert_eq!(extracted.definitions[0].language, "English");
+    }
+
+    #[test]
+    fn relation_order_does_not_reset_across_same_type_subsections() {
+        let html = r#"
+            <h2><span class="mw-headline">English</span></h2>
+            <h3><span class="mw-headline">Synonyms</span></h3>
+            <ul><li>alpha</li></ul>
+            <h3><span class="mw-headline">Synonyms</span></h3>
+            <ul><li>alpha</li></ul>
+        "#;
+
+        let mut cfg = ExtractionConfig::default();
+        cfg.min_definition_chars = 2;
+        let extracted = extract_from_html("test", html, &cfg);
+
+        let mut orders: Vec<i64> = extracted
+            .relations
+            .iter()
+            .filter(|relation| {
+                relation.language == "English" && relation.relation_type == "synonyms"
+            })
+            .map(|relation| relation.order_in_type)
+            .collect();
+        orders.sort_unstable();
+        assert_eq!(orders, vec![0, 1]);
     }
 }
