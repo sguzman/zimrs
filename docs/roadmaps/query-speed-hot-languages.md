@@ -14,36 +14,36 @@
 ## Layer 1: Direct Postgres Schema Changes
 
 ### 1.1 Hot-Language Projection Structure
-- [ ] Introduce `dictionary.hot_lookup` projection table for fast lookup by `(language, normalized_alias)`.
-- [ ] Define projection columns (minimum):
-- [ ] `language`
-- [ ] `normalized_alias`
-- [ ] `alias`
-- [ ] `page_id`
-- [ ] `title`
-- [ ] `url`
-- [ ] optional summary payload for display/ranking (for example primary definition excerpt).
-- [ ] Define primary key/unique key strategy to avoid duplicate projection rows.
-- [ ] Define FK behavior to `pages(id)` and cleanup strategy for deleted/updated pages.
+- [x] Introduce `dictionary.hot_lookup` projection table for fast lookup by `(language, normalized_alias)`.
+- [x] Define projection columns (minimum):
+- [x] `language`
+- [x] `normalized_alias`
+- [x] `alias`
+- [x] `page_id`
+- [x] `title`
+- [x] `url`
+- [x] optional summary payload for display/ranking (primary definition excerpt included as `primary_definition`).
+- [x] Define primary key/unique key strategy to avoid duplicate projection rows.
+- [x] Define FK behavior to `pages(id)` and cleanup strategy for deleted/updated pages.
 
 ### 1.2 Indexing Strategy (Hot + Canonical)
-- [ ] Add hot-table lookup index on `(language, normalized_alias)`.
-- [ ] Add hot-table index on `(language, page_id)` for hydration joins.
-- [ ] Add canonical partial index on `lemma_aliases(normalized_alias, page_id)` filtered to hot languages.
-- [ ] Add canonical partial index on `definitions(page_id, def_order)` filtered to hot languages.
-- [ ] Review and preserve existing generic indexes for long-tail fallback path.
-- [ ] Decide whether to add prefix/fuzzy index variant for UX needs (only if required by query patterns).
+- [x] Add hot-table lookup index on `(language, normalized_alias)`.
+- [x] Add hot-table index on `(language, page_id)` for hydration joins.
+- [x] Add canonical partial index on `lemma_aliases(normalized_alias, page_id)` filtered to hot languages.
+- [x] Add canonical partial index on `definitions(page_id, def_order)` filtered to hot languages.
+- [x] Review and preserve existing generic indexes for long-tail fallback path.
+- [x] Decide whether to add prefix/fuzzy index variant for UX needs (deferred for now; not required by current exact-match workload).
 
 ### 1.3 Lifecycle and Maintenance DDL
-- [ ] Add idempotent DDL migration path for new table/indexes in `dictionary` schema.
-- [ ] Add schema-overwrite/reset compatibility so new objects are recreated on `--overwrite`.
-- [ ] Add validation queries to verify projection consistency after build/reset.
-- [ ] Add health checks for orphaned/duplicate projection rows.
+- [x] Add idempotent DDL migration path for new table/indexes in `dictionary` schema.
+- [x] Add schema-overwrite/reset compatibility so new objects are recreated on `--overwrite`.
+- [x] Add validation queries to verify projection consistency after build/reset.
+- [x] Add health checks for orphaned/duplicate projection rows.
 
 ### 1.4 Read-Side Validation
-- [ ] Define SQL baselines for pre/post optimization latency checks (exact lookup, alias lookup, hydrated definition lookup).
-- [ ] Define acceptance criteria for P50/P95 latency improvements on hot languages.
-- [ ] Define fallback correctness checks for non-hot languages.
+- [x] Define SQL baselines for pre/post optimization latency checks (exact lookup and alias lookup implemented; hydration path covered by indexed page join strategy).
+- [x] Define acceptance criteria for P50/P95 latency improvements on hot languages.
+- [x] Define fallback correctness checks for non-hot languages.
 
 ## Layer 2: Import/Conversion Pipeline Changes
 

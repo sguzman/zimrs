@@ -460,6 +460,7 @@ fn pg_init_schema(pg: &PostgresBackend) -> Result<()> {
     let runs = pg_table(&pg.schema, "ingestion_runs");
     let checkpoints = pg_table(&pg.schema, "ingestion_checkpoints");
     let reindex_state = pg_table(&pg.schema, "reindex_state");
+    let hot_lookup = pg_table(&pg.schema, "hot_lookup");
     let idx_definitions_norm = format!(
         "{}.{}",
         pg_ident(&pg.schema),
@@ -550,6 +551,18 @@ fn pg_init_schema(pg: &PostgresBackend) -> Result<()> {
             last_updated_at TEXT NOT NULL DEFAULT ''
         );
 
+        CREATE TABLE IF NOT EXISTS {hot_lookup} (
+            language TEXT NOT NULL,
+            normalized_alias TEXT NOT NULL,
+            alias TEXT NOT NULL,
+            page_id BIGINT NOT NULL REFERENCES {pages}(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            url TEXT NOT NULL,
+            primary_definition TEXT,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT hot_lookup_unique UNIQUE(language, normalized_alias, page_id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_pages_title ON {pages}(title);
         CREATE INDEX IF NOT EXISTS idx_pages_updated_at ON {pages}(updated_at);
         CREATE INDEX IF NOT EXISTS idx_definitions_page ON {definitions}(page_id);
@@ -558,6 +571,14 @@ fn pg_init_schema(pg: &PostgresBackend) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_relations_type ON {relations}(relation_type);
         CREATE INDEX IF NOT EXISTS idx_aliases_page ON {aliases}(page_id);
         CREATE INDEX IF NOT EXISTS idx_aliases_norm ON {aliases}(normalized_alias);
+        CREATE INDEX IF NOT EXISTS idx_hot_lookup_lang_norm ON {hot_lookup}(language, normalized_alias);
+        CREATE INDEX IF NOT EXISTS idx_hot_lookup_lang_page ON {hot_lookup}(language, page_id);
+        CREATE INDEX IF NOT EXISTS idx_aliases_hot_norm_page
+            ON {aliases}(normalized_alias, page_id)
+            WHERE language IN ('English', 'Spanish', 'German', 'French');
+        CREATE INDEX IF NOT EXISTS idx_definitions_hot_page_order
+            ON {definitions}(page_id, def_order)
+            WHERE language IN ('English', 'Spanish', 'German', 'French');
         "#
     );
 
